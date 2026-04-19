@@ -1,28 +1,35 @@
 import { useEffect, useState } from 'react';
 import RequestCard from '../components/RequestCard';
 import { fetchRequests, getAISearchSuggestions } from '../services/requestService';
+import { useAuth } from '../context/AuthContext';
 
 const categories = ['General', 'Tech', 'Design', 'Career', 'Education', 'Wellness', 'Logistics'];
 const urgencies = ['LOW', 'MEDIUM', 'HIGH'];
 
 export default function ExplorePage() {
+  const { user } = useAuth();
   const [filters, setFilters] = useState({ category: '', urgency: '', search: '' });
   const [requests, setRequests] = useState([]);
-  const [aiSuggestions, setAiSuggestions] = useState(null);
-  const [showSuggestions, setShowSuggestions] = useState(false);
   const [isAISearch, setIsAISearch] = useState(false);
+  const [aiError, setAiError] = useState(null);
+  const [loadingAI, setLoadingAI] = useState(false);
 
   useEffect(() => {
     loadRequests();
   }, []);
 
   const loadRequests = async () => {
-    const params = { ...filters };
-    if (isAISearch && filters.search) {
-      params.ai = 'true';
+    try {
+      const params = { ...filters };
+      if (isAISearch && filters.search) {
+        params.ai = 'true';
+      }
+      const data = await fetchRequests(params);
+      setRequests(data);
+    } catch (error) {
+      console.error('Failed to load requests:', error);
+      setAiError('Failed to load requests. Please try again.');
     }
-    const data = await fetchRequests(params);
-    setRequests(data);
   };
 
   const applyFilters = async e => {
@@ -33,19 +40,33 @@ export default function ExplorePage() {
   const handleSearchChange = async e => {
     const value = e.target.value;
     setFilters(prev => ({ ...prev, search: value }));
+    console.log('Search value:', value, 'User authenticated:', !!user);
 
-    if (value.length > 2) {
+    if (value.length > 0) {
+      if (!user) {
+        setAiError('Please login to use AI search suggestions');
+        setAiSuggestions(null);
+        setShowSuggestions(false);
+        return;
+      }
+
       try {
+        setAiError(null);
+        console.log('Calling AI search suggestions...');
         const suggestions = await getAISearchSuggestions(value);
+        console.log('AI suggestions received:', suggestions);
         setAiSuggestions(suggestions);
         setShowSuggestions(true);
       } catch (error) {
         console.error('Failed to get AI suggestions:', error);
+        setAiError('AI suggestions unavailable. Please try again.');
         setAiSuggestions(null);
+        setShowSuggestions(false);
       }
     } else {
       setAiSuggestions(null);
       setShowSuggestions(false);
+      setAiError(null);
     }
   };
 
@@ -56,8 +77,19 @@ export default function ExplorePage() {
   };
 
   const applyAISearch = () => {
+    console.log('AI Search button clicked, user:', user, 'search:', filters.search);
+    if (!user) {
+      setAiError('Please login to use AI search');
+      return;
+    }
+    if (!filters.search.trim()) {
+      setAiError('Please enter a search term first');
+      return;
+    }
+    setAiError(null);
+    setLoadingAI(true);
     setIsAISearch(true);
-    loadRequests();
+    loadRequests().finally(() => setLoadingAI(false));
   };
 
   const clearAISearch = () => {
@@ -116,6 +148,11 @@ export default function ExplorePage() {
                 </div>
               </div>
             )}
+            {aiError && (
+              <div className="absolute top-full mt-2 w-full rounded-lg border border-red-700 bg-red-900/20 shadow-xl z-10 p-3">
+                <p className="text-sm text-red-400">{aiError}</p>
+              </div>
+            )}
           </div>
           <select name="category" value={filters.category} onChange={applyFilters} className="px-4 py-3 rounded-lg border border-slate-700 bg-slate-800 text-white focus:border-blue-500 focus:outline-none">
             <option value="">All categories</option>
@@ -129,9 +166,10 @@ export default function ExplorePage() {
         <div className="mt-4 flex gap-3">
           <button
             onClick={applyAISearch}
-            className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors flex items-center gap-2"
+            disabled={!user || !filters.search.trim() || loadingAI}
+            className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white rounded-lg transition-colors flex items-center gap-2"
           >
-            <span>🤖</span> AI Search
+            <span>🤖</span> {loadingAI ? 'Searching...' : 'AI Search'} {!user && '(Login Required)'}
           </button>
           {isAISearch && (
             <button
